@@ -1,0 +1,25 @@
+{
+  "name": "ffmpeg2mp4",
+  "version": "1.0.0",
+  "description": "ffmpeg格式转换的脚本",
+  "main": "ffmpeg2mp4",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lonord/ffmpeg2mp4.git"
+  },
+  "author": "lonord",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/lonord/ffmpeg2mp4/issues"
+  },
+  "homepage": "https://github.com/lonord/ffmpeg2mp4#readme",
+  "dependencies": {
+    "async": "*"
+  }
+}

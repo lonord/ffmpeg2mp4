@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+
+/**
+ * 使用ffmpeg转换文件格式的自动化脚本，
+ * 对ffmpeg命令做了简单封装，
+ * 支持单个文件以及整个文件夹全部转换，
+ * 输出实时进度。
+ *
+ * Created by lonord on 2016/10/9.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const spawn = require('child_process').spawn;
+const async = require('async');
+
+const ffmpegPath = '/usr/local/bin/ffmpeg';
+
+function main() {
+    if (process.argv.length < 3) {
+        console.log('缺少参数!');
+        console.log('用法: ffmpeg2mp4 输入文件/目录 [输出路径]');
+        return;
+    }
+    let source = process.argv[2];
+    let targetDir;
+    let sourceStat = fs.statSync(source);
+    let files = [];
+    if (sourceStat.isDirectory()) {
+        targetDir = source;
+        let names = fs.readdirSync(source);
+        names.forEach((name) => {
+            let p = path.join(source, name);
+            let fileStat = fs.statSync(p);
+            if (fileStat.isFile()) {
+                files.push(p);
+            }
+        });
+    }
+    else if (sourceStat.isFile()) {
+        targetDir = path.dirname(source);
+        files.push(source);
+    }
+    else {
+        throw new Error(`输入类型错误 ${source}`);
+    }
+    if (process.argv.length >= 4) {
+        targetDir = process.argv[3];
+    }
+    let index = 0;
+    let successCount = 0;
+    let failCount = 0;
+    async.whilst(
+        function () { return index < files.length; },
+        function (callback) {
+            let file = files[index];
+            let fileName = path.basename(file);
+            console.log(`开始转换 ${fileName} (${index + 1}/${files.length})...`);
+            transCodeFile(file, targetDir, (percent) => {
+                process.stdout.write(`\r进度: ${percent}%`);
+            }, (success) => {
+                if (success) {
+                    process.stdout.write('\r转换成功!\n');
+                    successCount++;
+                }
+                else {
+                    failCount++;
+                    process.stdout.write('\r转换失败!\n');
+                }
+                callback();
+            });
+            index++;
+        },
+        function () {
+            console.log(`全部转换结束 成功:${successCount} 失败:${failCount}`);
+            console.log(`输出目录:${targetDir}`);
+        }
+    );
+}
+
+/**
+ * 转换文件格式函数
+ * @param file 输入文件绝对路径
+ * @param targetDir 输出文件目录绝对路径
+ * @param progressCallback 报告进度回调函数
+ * @param completeCallback 完成回调函数
+ */
+function transCodeFile(file, targetDir, progressCallback, completeCallback) {
+    let outPath = path.join(targetDir, path.basename(file));
+    outPath = outPath.substr(0, outPath.length - path.extname(outPath).length) + '.mp4';
+    const ffmpeg = spawn(ffmpegPath, ['-i', file, '-y', outPath]);
+    let totalTime = 0;
+    ffmpeg.stderr.on('data', (data) => {
+        let dataStr = data + '';
+        let durIdx = dataStr.indexOf('Duration:');
+        if (durIdx > 0) {
+            let durStr = dataStr.substr(durIdx + 10, 11);
+            totalTime = parseTime(durStr);
+        }
+        let timeIdx = dataStr.indexOf(' time=');
+        if (timeIdx > 0) {
+            let timeStr = dataStr.substr(timeIdx + 6, 11);
+            let time = parseTime(timeStr);
+            if (time <= totalTime) {
+                let per = Math.floor(time * 100 / totalTime);
+                progressCallback(per);
+            }
+        }
+    });
+    ffmpeg.on('exit', (code) => {
+        if (code == 0) {
+            completeCallback(true);
+        }
+        else {
+            completeCallback(false);
+        }
+    });
+
+    /**
+     * 将时间由 01:23:45.67 的形式转换为整数
+     * @param durStr
+     * @returns {number}
+     */
+    function parseTime(durStr) {
+        let time = parseInt(durStr.substr(0, 2)) * 3600 * 100;
+        time += parseInt(durStr.substr(0, 2)) * 3600 * 100;
+        time += parseInt(durStr.substr(3, 2)) * 60 * 100;
+        time += parseInt(durStr.substr(6, 2)) * 100;
+        time += parseInt(durStr.substr(9, 2));
+        return time;
+    }
+}
+
+try {
+    main();
+}
+catch(e) {
+    console.log(e.message);
+}

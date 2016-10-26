@@ -55,27 +55,50 @@ function main() {
         function (callback) {
             let file = files[index];
             let fileName = path.basename(file);
-            console.log(`开始转换 ${fileName} (${index + 1}/${files.length})...`);
-            transCodeFile(file, targetDir, (percent) => {
-                process.stdout.write(`\r进度: ${percent}%`);
+            if (files.length > 1) {
+                console.log(`开始转换 ${fileName} (${index + 1}/${files.length})...`);
+            }
+            else {
+                console.log(`开始转换 ${fileName} ...`);
+            }
+            transCodeFile(file, targetDir, (percent, speed, left) => {
+                clearLine();
+                process.stdout.write(`进度: ${percent}%\t速度: ${speed}x\t剩余时间: ${left}`);
             }, (success) => {
                 if (success) {
-                    process.stdout.write('\r转换成功!\n');
+                    clearLine();
+                    process.stdout.write('转换成功!\n');
                     successCount++;
                 }
                 else {
                     failCount++;
-                    process.stdout.write('\r转换失败!\n');
+                    clearLine();
+                    process.stdout.write('转换失败!\n');
                 }
                 callback();
             });
             index++;
         },
         function () {
-            console.log(`全部转换结束 成功:${successCount} 失败:${failCount}`);
+            if (files.length > 1) {
+                console.log(`全部转换结束 成功:${successCount} 失败:${failCount}`);
+            }
             console.log(`输出目录:${targetDir}`);
         }
     );
+
+    /**
+     *  清除当前行
+     */
+    function clearLine() {
+        process.stdout.write('\r');
+        if (process.stdout.isTTY) {
+            for (let i = 0; i < process.stdout.columns; i++) {
+                process.stdout.write(' ');
+            }
+            process.stdout.write('\r');
+        }
+    }
 }
 
 /**
@@ -87,6 +110,7 @@ function main() {
  */
 function transCodeFile(file, targetDir, progressCallback, completeCallback) {
     let outPath = path.join(targetDir, path.basename(file));
+    let startTime = new Date().getTime();
     outPath = outPath.substr(0, outPath.length - path.extname(outPath).length) + '.mp4';
     const ffmpeg = spawn(ffmpegPath, ['-i', file, '-y', outPath]);
     let totalTime = 0;
@@ -102,8 +126,18 @@ function transCodeFile(file, targetDir, progressCallback, completeCallback) {
             let timeStr = dataStr.substr(timeIdx + 6, 11);
             let time = parseTime(timeStr);
             if (time <= totalTime) {
-                let per = Math.floor(time * 100 / totalTime);
-                progressCallback(per);
+                let per = Math.floor(time * 1000 / totalTime) / 10;
+                if (/^[0-9]+$/.test(per)) {
+                    per += '.0';
+                }
+                let timeUsage = new Date().getTime() - startTime;
+                let leftTime = timeUsage / per * (100 - per);
+                let leftTimeStr = formatTime(Math.floor(leftTime / 1000));
+                let speed = Math.floor(time * 100 / timeUsage) / 10;
+                if (/^[0-9]+$/.test(speed)) {
+                    speed += '.0';
+                }
+                progressCallback(per, speed, leftTimeStr);
             }
         }
     });
@@ -128,6 +162,20 @@ function transCodeFile(file, targetDir, progressCallback, completeCallback) {
         time += parseInt(durStr.substr(6, 2)) * 100;
         time += parseInt(durStr.substr(9, 2));
         return time;
+    }
+
+    /**
+     * 将时间由整秒数转换为hh:mm:ss
+     */
+    function formatTime(time) {
+        let sec = Math.floor(time % 60);
+        let min = Math.floor(Math.floor(time / 60) % 60);
+        let hour = Math.floor(time / 3600);
+        let secStr = sec > 9 ? '' + sec : '0' + sec;
+        let minStr = min > 9 ? '' + min : '0' + min;
+        let hourStr = hour > 9 ? '' + hour : '0' + hour;
+        let str = `${hourStr}:${minStr}:${secStr}`;
+        return str;
     }
 }
 

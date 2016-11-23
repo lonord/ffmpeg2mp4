@@ -16,12 +16,94 @@ const async = require('async');
 
 const ffmpegPath = '/usr/local/bin/ffmpeg';
 
+class LinePrinter {
+    /**
+     * 初始化一个部分更新行，将$()作为占位符
+     */
+    constructor(str) {
+        this._reg = /\$\([-+]?[0-9]\)/;
+        this._template = this._compileTemplate(str.replace(/\t/g, '   '));
+    }
+
+    /**
+     * 用字符串替换占位符
+     * @param breakLine {boolean} 输出后是否换行
+     */
+    print(breakLine) {
+        let args = arguments;
+        let len = args.length;
+        if (this._template.length < len) {
+            len = this._template.length;
+        }
+        process.stdout.write('\r');
+        let cPosition = 1;
+        for (let i = 0; i < len; i++) {
+            let entry = this._template[i];
+            let move = entry.index + 1 - cPosition;
+            let content = args[i];
+            if (entry.width > 0) {
+                content = (content + this._generateSpace(entry.width)).slice(0, entry.width);
+            }
+            else {
+                let s = this._generateSpace(-1 * entry.width) + content;
+                content = s.slice(s.length + entry.width);
+            }
+            cPosition += move + Math.abs(entry.width);
+            process.stdout.write(`\x1B[${move}C${content}`);
+        }
+    }
+
+    /**
+     *  清除当前行
+     */
+    clear() {
+        process.stdout.write('\r\x1B[K');
+    }
+
+    _compileTemplate(str) {
+        let arr = [];
+        let converted = str.replace(/[^\x00-\xff]/g, '@@');
+        while (true) {
+            let res = converted.match(this._reg);
+            if (!res) {
+                break;
+            }
+            let idx = res.index;
+            let width = parseInt(res[0].slice(2, res[0].length - 1));
+            arr.push({
+                index: idx,
+                width: width
+            });
+            converted = converted.replace(this._reg, this._generateSpace(Math.abs(width)));
+        }
+        let tem = str;
+        while (true) {
+            let res = tem.match(this._reg);
+            if (!res) {
+                break;
+            }
+            let width = parseInt(res[0].slice(2, res[0].length - 1));
+            tem = tem.replace(this._reg, this._generateSpace(Math.abs(width)));
+        }
+        this.clear();
+        process.stdout.write(tem);
+        return arr;
+    }
+
+    _generateSpace(num) {
+        let spaceBuf = Buffer.allocUnsafe(num);
+        spaceBuf.fill(32);
+        return spaceBuf.toString();
+    }
+}
+
 function main() {
     if (process.argv.length < 3) {
         console.log('缺少参数!');
         console.log('用法: ffmpeg2mp4 输入文件/目录 [输出路径]');
         return;
     }
+    process.stdout.write('\x1B[?25l');
     let source = process.argv[2];
     let targetDir;
     let sourceStat = fs.statSync(source);
@@ -61,18 +143,18 @@ function main() {
             else {
                 console.log(`开始转换 ${fileName} ...`);
             }
+            let printer = new LinePrinter('进度: $(-5)%\t速度: $(-5)x\t剩余时间: $(8)');
             transCodeFile(file, targetDir, (percent, speed, left) => {
-                clearLine();
-                process.stdout.write(`进度: ${percent}%\t速度: ${speed}x\t剩余时间: ${left}`);
+                printer.print(percent, speed, left);
             }, (success) => {
                 if (success) {
-                    clearLine();
+                    printer.clear();
                     process.stdout.write('转换成功!\n');
                     successCount++;
                 }
                 else {
                     failCount++;
-                    clearLine();
+                    printer.clear();
                     process.stdout.write('转换失败!\n');
                 }
                 callback();
@@ -86,19 +168,6 @@ function main() {
             console.log(`输出目录:${targetDir}`);
         }
     );
-
-    /**
-     *  清除当前行
-     */
-    function clearLine() {
-        process.stdout.write('\r');
-        if (process.stdout.isTTY) {
-            for (let i = 0; i < process.stdout.columns; i++) {
-                process.stdout.write(' ');
-            }
-            process.stdout.write('\r');
-        }
-    }
 }
 
 /**
@@ -178,6 +247,10 @@ function transCodeFile(file, targetDir, progressCallback, completeCallback) {
         return str;
     }
 }
+
+process.on('exit', () => {
+    process.stdout.write('\x1B[?25h');
+});
 
 try {
     main();
